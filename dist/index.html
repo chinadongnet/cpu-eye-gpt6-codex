@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="CPU EYE：可编程的 CPU 教学模拟器，逐步观察 C++ 程序的指令、寄存器、内存和控制流。" />
+  <meta name="theme-color" content="#10171b" />
+  <title>CPU EYE · CPU 可视化实验室</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./"><span class="brand-mark">▦</span>CPU<span>EYE</span><small>可视化实验室</small></a>
+    <div class="top-right"><span class="local-indicator">浏览器内执行</span><button id="help-button" class="text-button">使用说明 ↗</button></div>
+  </header>
+  <main>
+    <section class="workspace-heading"><div><div class="eyebrow">COMPUTER ARCHITECTURE PLAYGROUND</div><h1>让每一条指令，看得见。</h1><p>从 C++ 源码到 CPU 状态，探索程序运行的每一步。</p></div><div class="model-control"><label for="architecture">CPU 模型</label><select id="architecture"><option value="x64">x86-64 · 64-bit</option><option value="x86">x86 · 32-bit</option><option value="arm32">ARM32 · 32-bit</option><option value="arm64">ARM64 · 64-bit</option></select></div></section>
+    <section class="toolbar" aria-label="执行控制"><div class="transport"><button id="compile" class="primary">编译 / 重置</button><button id="play">▶ 运行</button><button id="step">单步 →</button><button id="back" title="回到前一个执行状态">↶ 回退</button></div><div class="speed"><label for="speed">执行速度</label><input id="speed" type="range" min="1" max="10" value="4" /><span id="speed-value">4 指令/s</span></div><div class="execution-status"><span id="status" role="status">准备就绪</span><span class="divider"></span><span id="step-count">STEP 0000</span></div></section>
+    <div class="lab-grid">
+      <section class="panel source-panel"><div class="panel-title"><h2><span class="section-number">01</span> C++ 程序</h2><span class="file-tag">main.cpp</span></div><div class="example-control"><label for="example">示例程序</label><select id="example"></select></div><p id="example-description" class="example-description"></p><div class="editor-wrap"><div id="line-numbers" aria-hidden="true"></div><textarea id="source" aria-label="C++ 源代码编辑器" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea></div><div class="source-foot"><span id="source-state">C++ 教学子集</span><button id="validate" class="text-button">验证全部示例 ↗</button></div></section>
+      <section class="panel cpu-panel"><div class="panel-title"><h2><span class="section-number">02</span> CPU 数据通路</h2><span id="arch-badge" class="badge">x86-64</span></div><div class="cpu-canvas"><div class="circuit-label">逻辑执行示意 · 非周期精确模型</div><div class="datapath"><div class="bus vertical"></div><div class="cpu-unit" id="unit-fetch"><span>INSTRUCTION FETCH</span><strong>取指单元</strong><code id="pc-value">0x00400000</code></div><div class="flow-link">↓ <span>指令总线</span></div><div class="cpu-unit" id="unit-decode"><span>DECODE & CONTROL</span><strong>译码 / 控制单元</strong><code id="decoded">等待执行</code></div><div class="split-link"><span>↙</span><span>↘</span></div><div class="unit-pair"><div class="cpu-unit" id="unit-register"><span>REGISTER FILE</span><strong>寄存器组</strong><code id="register-preview">RAX = 0</code></div><div class="cpu-unit alu" id="unit-alu"><span>ARITHMETIC & LOGIC</span><strong>算术逻辑单元</strong><code id="alu-value">—</code></div></div><div class="flow-link">↕ <span>数据总线</span></div><div class="cpu-unit memory-unit" id="unit-memory"><div><span>STACK MEMORY</span><strong>栈内存</strong></div><code id="memory-preview">0 bytes</code></div></div><div class="flag-row" id="flags"></div></div><div class="current-operation"><span class="operation-label">当前操作</span><p id="operation">点击「运行」或「单步」，观察数据如何流动。</p></div></section>
+      <section class="panel registers-panel"><div class="panel-title"><h2><span class="section-number">03</span> 寄存器</h2><button class="text-button" id="number-format">HEX ⇄ DEC</button></div><div class="register-head"><span>寄存器</span><span>数值</span></div><div id="registers" class="register-list"></div><div class="register-note"><span class="change-key"></span> 高亮表示本步发生变化</div></section>
+      <section class="panel instruction-panel"><div class="panel-title"><h2><span class="section-number">04</span> 指令序列</h2><span class="file-tag">教学伪汇编</span></div><div class="instruction-head"><span>地址</span><span>指令</span><span>源码</span></div><div id="instructions" class="instruction-list"></div><div class="panel-foot">点击指令左侧设置断点 <span>●</span></div></section>
+      <section class="panel memory-panel"><div class="panel-title"><h2><span class="section-number">05</span> 内存与变量</h2><span class="file-tag">little-endian · int32</span></div><div id="memory" class="memory-list"></div><div class="stack-footer"><span>调用栈</span><div id="call-stack">main()</div></div></section>
+      <section class="panel console-panel"><div class="panel-title"><h2><span class="section-number">06</span> 执行结果</h2><span id="validation-badge" class="file-tag">待验证</span></div><pre id="console" aria-label="程序输出">程序输出将显示在这里。</pre><div id="result" class="result-summary">载入示例后可直接运行。</div><div id="validation-results"></div></section>
+    </div>
+    <footer><span>CPU EYE <span class="footer-dot">/</span> 从代码，理解计算。</span><span>4 种架构 · 可回溯执行 · 本地计算</span></footer>
+  </main>
+  <dialog id="help"><div class="help-heading"><h2>开始你的 CPU 实验</h2><button id="close-help" aria-label="关闭说明">×</button></div><p>选择示例或编辑代码，点击「编译 / 重置」。运行时同步查看源码行、指令、寄存器、标志位、变量和调用栈；支持暂停、单步、回退和指令断点。</p><h3>支持的 C++ 教学子集</h3><p>有符号 32 位 int、bool、整数数组、函数与递归；if/else、for、while、break、continue、return；算术、比较、逻辑、位运算；cout / std::cout、endl、assert。main 必须为无参数 int 函数。不支持指针、引用、类、模板、浮点数、动态分配或完整标准库。</p><h3>四种模型如何工作</h3><p>源代码解析为教学中间指令，由确定性的虚拟机执行。架构切换会改变寄存器布局、地址宽度、标志位名称和伪汇编表达；C++ int 在四种模型中均为 32 位。寄存器映射、指令地址、栈布局及调用约定均为教学约定，不生成真实机器码，不代表 GCC/Clang 的汇编输出，也不模拟真实 CPU 时序、流水线冒险或缓存。</p><p>有符号溢出、越界、除零和未初始化读取会报告错误。为防止浏览器卡住，每次连续执行最多 50,000 条教学指令；保留最近 600 步供回退。比较模型时会重新编译并从头执行。</p></dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
