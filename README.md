@@ -2,6 +2,10 @@
 
 可部署为静态网站的 CPU 教学模拟器。零运行时依赖，程序解析与执行全部在浏览器内完成；代码不上传至编译服务器。
 
+**在线使用：[CPU EYE · GitHub Pages](https://chinadongnet.github.io/cpu-eye-gpt6-codex/)**
+
+打开网页即可选择示例、编辑 C++ 程序并运行，无需安装软件或登录。
+
 ## 本地使用
 
 安装 Node.js 后，在项目目录运行：
@@ -42,6 +46,16 @@ npm run build
 标志位按教学规则更新：算术结果更新零/符号位，加减法还计算进位/借位与溢出；ARM 减法进位按“无借位”解释。比较伪指令产生 0/1，再按该结果更新标志。不是各 ISA 对每条真实指令的精确标志行为。左移采用保守检查，拒绝负值左移或超过 INT32_MAX 的结果。
 
 ## 部署
+
+### GitHub Pages
+
+仓库通过 [Deploy GitHub Pages](https://github.com/chinadongnet/cpu-eye-gpt6-codex/actions/workflows/pages.yml) 工作流自动发布。推送到 `main` 或在 Actions 中手动运行工作流后，依次执行模拟器测试、静态文件校验，并仅上传 `dist/`。检查失败时不会部署新版本。
+
+仓库的 **Settings → Pages → Source** 设置为 **GitHub Actions**。工作流使用 GitHub 自动提供的令牌，无需添加密钥。前端资源和 ES module 导入均为相对路径，可直接运行于 `/cpu-eye-gpt6-codex/` 子路径。
+
+Fork 后，在自己的仓库启用 GitHub Pages（选择 GitHub Actions）和 Actions，再手动执行工作流即可；访问地址以部署任务输出为准。
+
+### 其他静态托管
 
 将 `dist/` 的完整内容上传到任意支持 ES modules 的静态 HTTP(S) 托管服务即可，例如 Nginx 或静态网站服务。没有后端、数据库、API 密钥或编译服务器要求。不要直接双击 HTML 使用 file://，浏览器模块加载需要 HTTP(S)。当前 Sites 项目配置保存在 `.openai/hosting.json`。
 
