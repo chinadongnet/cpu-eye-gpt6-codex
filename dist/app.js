@@ -1,4 +1,4 @@
-import { EXAMPLES } from './examples.js';
+import { EXAMPLES, matchesExample } from './examples.js';
 import { ARCHITECTURES, Machine, compile, address, assembly, formatNumber } from './engine.js';
 
 const $ = id => document.getElementById(id);
@@ -53,8 +53,8 @@ function render(){
   $('console').textContent=s.output||(s.halted?'（无输出）':'程序输出将显示在这里。');
   $('result').className='result-summary';
   if(s.error){$('result').textContent=s.error;$('result').classList.add('error');$('validation-badge').textContent='执行错误';}
-  else if(s.halted){const passed=matches&&s.output===current.expected&&s.result===current.result;$('result').textContent=`返回值 ${s.result} · 已执行 ${s.steps} 条教学指令`+(matches?passed?' · 与预期一致':' · 与预期不符':' · 自定义程序执行完成');$('result').classList.add(matches&&!passed?'error':'success');$('validation-badge').textContent=matches?(passed?'✓ 验证通过':'验证失败'):'执行完成';}
-  else{$('result').textContent=matches?`预期返回值 ${current.result} · 运行结束后自动校验输出与返回值`:'自定义程序 · 执行 assert 可验证结果';$('validation-badge').textContent='待验证';}
+  else if(s.halted){const passed=matches&&matchesExample(s,current);$('result').textContent=`返回值 ${s.result} · 已执行 ${s.steps} 条教学指令`+(matches?passed?' · 与预期一致':' · 与预期不符':' · 自定义程序执行完成');$('result').classList.add(matches&&!passed?'error':'success');$('validation-badge').textContent=matches?(passed?'✓ 验证通过':'验证失败'):'执行完成';}
+  else{$('result').textContent=matches?`预期返回值 ${current.result} · 运行结束后自动校验输出与返回值${current.expectedMemory?'及成员值':''}`:'自定义程序 · 执行 assert 可验证结果';$('validation-badge').textContent='待验证';}
   const active=s.last??s.pc;
   for(const row of $('instructions').children){const idx=Number(row.dataset.index);row.classList.toggle('current',s.last===idx);row.classList.toggle('next',!s.halted&&idx===s.pc);}
   if(active!==lastHighlighted){
@@ -74,13 +74,13 @@ function play(){
   $('play').textContent='Ⅱ 暂停';render();
 }
 async function validateExamples(){
-  stop();render();$('validate').disabled=true;$('validation-results').textContent='正在验证 6 个示例 × 4 种模型…';let total=0;const failures=[];
+  stop();render();$('validate').disabled=true;const modelCount=Object.keys(ARCHITECTURES).length;$('validation-results').textContent=`正在验证 ${EXAMPLES.length} 个示例 × ${modelCount} 种模型…`;let total=0;const failures=[];
   try{
     for(const a of Object.keys(ARCHITECTURES)){
-      for(const example of EXAMPLES){try{const s=new Machine(compile(example.source),a).run();if(s.error||s.output!==example.expected||s.result!==example.result)failures.push(`${ARCHITECTURES[a].name} / ${example.name}: ${s.error||'结果不符'}`);else total++;}catch(error){failures.push(error.message);}}
+      for(const example of EXAMPLES){try{const s=new Machine(compile(example.source),a).run();if(!matchesExample(s,example))failures.push(`${ARCHITECTURES[a].name} / ${example.name}: ${s.error||'结果不符'}`);else total++;}catch(error){failures.push(error.message);}}
       await new Promise(resolve=>setTimeout(resolve,0));
     }
-    $('validation-results').textContent=failures.length?failures.join('\n'):`✓ ${total}/24 全部通过 · 输出与返回值均匹配`;
+    $('validation-results').textContent=failures.length?failures.join('\n'):`✓ ${total}/${EXAMPLES.length*modelCount} 全部通过 · 输出、返回值与预期内存均匹配`;
   }finally{$('validate').disabled=false;}
 }
 editor.addEventListener('input',()=>{stop();dirty=true;lineNumbers();updateButtons();$('source-state').textContent='源码已修改 · 请重新编译';$('status').textContent='待编译';});

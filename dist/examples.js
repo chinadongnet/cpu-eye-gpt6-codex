@@ -86,5 +86,24 @@ int main() {
   }
   cout << "gcd = " << a << endl;
   return a;
+}` },
+  { id: 'class-members', name: '07 · 类与成员变量', description: '观察对象内存布局，依次写入 a.x = 1、a.y = 2。', expected: '', result: 0, expectedMemory: { 'a.x': 1, 'a.y': 2 }, source: `class A {
+public:
+  int x;
+  int y;
+};
+
+int main() {
+  A a;
+  a.x = 1;
+  a.y = 2;
+  return 0;
 }` }
 ];
+
+// Some examples deliberately produce no output: validate their final members too.
+export function matchesExample(state, example) {
+  return state.halted && !state.error && state.output === example.expected && state.result === example.result
+    && Object.entries(example.expectedMemory || {}).every(([name, value]) =>
+      Object.values(state.memory).some(cell => cell.frame === 1 && cell.name === name && cell.value === value));
+}
