@@ -34,29 +34,51 @@ function tokenize(source) {
     if(id) { add(id[0],'id'); i+=id[0].length; continue; }
     const op=['<<=','>>=','++','--','+=','-=','*=','/=','%=','==','!=','<=','>=','&&','||','<<','>>','&=','|=','^=','::'].find(op=>source.startsWith(op,i));
     if(op) {add(op);i+=op.length;continue;}
-    if('{}()[];,+-*/%<>=!~&|^'.includes(c)) {add(c);i++;continue;}
+    if('{}()[];,:.+-*/%<>=!~&|^'.includes(c)) {add(c);i++;continue;}
     throw new ProgramError(`不支持的字符「${c}」`,line);
   }
   add('<eof>'); return tokens;
 }
 const precedence={'=':1,'+=':1,'-=':1,'*=':1,'/=':1,'%=':1,'&=':1,'|=':1,'^=':1,'<<=':1,'>>=':1,'||':2,'&&':3,'|':4,'^':5,'&':6,'==':7,'!=':7,'<':8,'>':8,'<=':8,'>=':8,'<<':9,'>>':9,'+':10,'-':10,'*':11,'/':11,'%':11};
 class Parser {
-  constructor(source) {this.t=tokenize(source);this.i=0;this.depth=0;}
+  constructor(source) {this.t=tokenize(source);this.i=0;this.depth=0;this.classes=new Map();}
   peek(v) {return this.t[this.i].value===v;}
   take(v) {if(this.peek(v)) {this.i++;return true;}return false;}
   expect(v) {if(!this.take(v)) throw new ProgramError(`需要「${v}」，但遇到「${this.t[this.i].value}」`,this.t[this.i].line);}
   id() {const t=this.t[this.i++];if(t.kind!=='id') throw new ProgramError('需要标识符',t.line); return t.value;}
-  type() {const t=this.t[this.i++];if(!['int','bool','void'].includes(t.value)) throw new ProgramError('仅支持 int、bool 与 void 函数返回类型',t.line);return t.value;}
+  type(allowClass=false) {const t=this.t[this.i++];if(!['int','bool','void'].includes(t.value)&&!(allowClass&&this.classes.has(t.value))) throw new ProgramError('此处需要 int、bool 或已支持的类型（函数返回类型还可为 void）',t.line);return t.value;}
+  isDeclaration() {return this.peek('int')||this.peek('bool')||this.classes.has(this.t[this.i].value);}
+  classDeclaration() {
+    const line=this.t[this.i].line;
+    this.expect('class');const name=this.id();
+    if(this.classes.has(name)||['int','bool','void','class','public','private','protected'].includes(name))throw new ProgramError('类名重复或无效：'+name,line);
+    if(!this.peek('{'))throw new ProgramError('类需要定义体；不支持继承或前向声明',line);
+    this.expect('{');const fields=[];let visibility='private';
+    while(!this.peek('}')) {
+      const memberLine=this.t[this.i].line;
+      if(['public','private','protected'].includes(this.t[this.i].value)){visibility=this.t[this.i++].value;this.expect(':');continue;}
+      if(!this.peek('int')&&!this.peek('bool'))throw new ProgramError('类仅支持 int/bool 数据成员；不支持构造函数、方法或嵌套对象',memberLine);
+      const type=this.type(),fieldName=this.id();
+      if(fieldName===name||fields.some(field=>field.name===fieldName))throw new ProgramError('成员名重复或与类名相同：'+fieldName,memberLine);
+      if(!this.peek(';'))throw new ProgramError('成员需单独声明为 int/bool；不支持成员函数、数组或默认初始化',memberLine);
+      this.expect(';');fields.push({name:fieldName,type,visibility,offset:fields.length*4});
+      if(fields.length>256)throw new ProgramError('每个类最多支持 256 个数据成员',memberLine);
+    }
+    this.expect('}');this.expect(';');
+    if(!fields.length)throw new ProgramError('当前教学子集要求类至少包含一个数据成员',line);
+    this.classes.set(name,{name,fields,line});
+  }
   parse() {
     const functions=[];
     while(!this.peek('<eof>')) {
       if(this.take('using')) {this.expect('namespace');this.expect('std');this.expect(';');continue;}
+      if(this.peek('class')) {this.classDeclaration();continue;}
       const line=this.t[this.i].line,type=this.type(),name=this.id(); this.expect('(');const params=[];
       if(!this.peek(')')) do {const type=this.type();if(type==='void') throw new ProgramError('参数不能为 void',line);params.push({type,name:this.id()});} while(this.take(','));
       this.expect(')');if(!this.peek('{')) throw new ProgramError('函数需要函数体；不支持全局变量或函数原型',line);
       functions.push({name,type,params,body:this.statement(),line});
     }
-    return functions;
+    return {functions,classes:this.classes};
   }
   statement() {
     if(++this.depth>120) throw new ProgramError('嵌套层数过多',this.t[this.i].line);
@@ -69,10 +91,10 @@ class Parser {
     if(this.take('if')) {this.expect('(');const cond=this.expr();this.expect(')');const yes=this.statement(),no=this.take('else')?this.statement():null;return {kind:'if',cond,yes,no,line};}
     if(this.take('while')) {this.expect('(');const cond=this.expr();this.expect(')');return {kind:'while',cond,body:this.statement(),line};}
     if(this.take('for')) {
-      this.expect('(');let init=null;if(!this.peek(';')) init=this.peek('int')||this.peek('bool')?this.decl():{kind:'expr',expr:this.expr(),line};this.expect(';');
+      this.expect('(');let init=null;if(!this.peek(';')) init=this.isDeclaration()?this.decl():{kind:'expr',expr:this.expr(),line};this.expect(';');
       const cond=this.peek(';')?{kind:'number',value:1,line}:this.expr();this.expect(';');const update=this.peek(')')?null:this.expr();this.expect(')');return {kind:'for',init,cond,update,body:this.statement(),line};
     }
-    if(this.peek('int')||this.peek('bool')) {const n=this.decl();this.expect(';');return n;}
+    if(this.isDeclaration()) {const n=this.decl();this.expect(';');return n;}
     if(this.take('return')) {const expr=this.peek(';')?null:this.expr();this.expect(';');return {kind:'return',expr,line};}
     for(const kind of ['break','continue']) if(this.take(kind)){this.expect(';');return {kind,line};}
     if(this.peek('cout')||(this.peek('std')&&this.t[this.i+2]?.value==='cout')) {
@@ -88,7 +110,11 @@ class Parser {
     const expr=this.expr();this.expect(';');return {kind:'expr',expr,line};
   }
   decl() {
-    const line=this.t[this.i].line,type=this.type(),name=this.id();let size=null,init=null;
+    const line=this.t[this.i].line,type=this.type(true),name=this.id();let size=null,init=null;
+    if(this.classes.has(type)) {
+      if(!this.peek(';'))throw new ProgramError('对象仅支持 Type name; 声明；不支持对象数组、初始化或拷贝',line);
+      return {kind:'decl',name,type,size,init,line};
+    }
     if(this.take('[')) {const t=this.t[this.i++];if(t.kind!=='number'||!Number.isInteger(Number(t.value))) throw new ProgramError('数组长度必须是整数字面量',line);size=Number(t.value);if(size<1||size>256) throw new ProgramError('数组长度范围为 1–256',line);this.expect(']');}
     if(this.take('=')) {if(this.take('{')) {init=[];if(!this.peek('}')) do{init.push(this.expr());}while(this.take(','));this.expect('}');if(!size) throw new ProgramError('花括号初始化仅支持数组',line);}else{if(size) throw new ProgramError('数组需要花括号初始化',line);init=this.expr();}}
     if(Array.isArray(init)&&init.length>size) throw new ProgramError('数组初始化元素过多',line);
@@ -108,6 +134,7 @@ class Parser {
       while(true) {
         const op=this.t[this.i].value;if(stop.has(op)) break;
         if(op==='('&&node.kind==='var') {this.i++;const args=[];if(!this.peek(')')) do{args.push(this.expr());}while(this.take(','));this.expect(')');node={kind:'call',name:node.name,args,line:node.line};continue;}
+        if(op==='.') {const line=this.t[this.i++].line;node={kind:'member',base:node,name:this.id(),line};continue;}
         if(op==='[') {this.i++;const index=this.expr();this.expect(']');node={kind:'index',base:node,index,line:node.line};continue;}
         if(op==='++'||op==='--') {this.i++;node={kind:'post',op,expr:node,line:node.line};continue;}
         const prec=precedence[op];if(!prec||prec<min) break;
@@ -118,17 +145,26 @@ class Parser {
   }
 }
 export function compile(source) {
-  const ast=new Parser(source).parse(),functions=Object.create(null),code=[];
+  const {functions:ast,classes}=new Parser(source).parse(),functions=Object.create(null),code=[];
   const emit=(op,args={},line=1)=>{code.push({op,...args,line});return code.length-1;};
   for(const fn of ast) {if(Object.hasOwn(functions,fn.name)||fn.name==='assert') throw new ProgramError('函数重复或保留名称：'+fn.name,fn.line);functions[fn.name]={...fn,slots:[],entry:0};}
   if(!Object.hasOwn(functions,'main')||functions.main.type!=='int'||functions.main.params.length) throw new ProgramError('程序需要 int main()');
   for(const fn of Object.values(functions)) {
     fn.entry=code.length;let scopes=[new Map()],loops=[];
-    const allocate=(name,type,size,line)=>{if(scopes.at(-1).has(name)) throw new ProgramError('变量重复定义：'+name,line);const slot={id:fn.slots.length,name,type,size:size||1,array:size!==null};fn.slots.push(slot);scopes.at(-1).set(name,slot);return slot;};
+    const allocate=(name,type,size,line)=>{if(scopes.at(-1).has(name)) throw new ProgramError('变量重复定义：'+name,line);const fields=classes.get(type)?.fields;const slot={id:fn.slots.length,name,type,size:fields?.length||size||1,array:size!==null,...(fields?{fields}:{})};fn.slots.push(slot);scopes.at(-1).set(name,slot);return slot;};
     fn.paramSlots=fn.params.map(p=>allocate(p.name,p.type,null,fn.line));
     const lookup=(name,line)=>{for(let i=scopes.length-1;i>=0;i--) if(scopes[i].has(name)) return scopes[i].get(name);throw new ProgramError('未定义的变量：'+name,line);};
     const addr=node=>{
-      if(node.kind==='var') {const slot=lookup(node.name,node.line);if(slot.array) throw new ProgramError('数组必须指定下标',node.line);emit('ADDR',{slot:slot.id,name:slot.name},node.line);return slot;}
+      if(node.kind==='var') {const slot=lookup(node.name,node.line);if(slot.fields)throw new ProgramError('对象必须通过 . 访问数据成员；不支持整体对象运算或拷贝',node.line);if(slot.array) throw new ProgramError('数组必须指定下标',node.line);emit('ADDR',{slot:slot.id,name:slot.name},node.line);return slot;}
+      if(node.kind==='member') {
+        if(node.base.kind!=='var')throw new ProgramError('成员访问仅支持 object.member，不支持嵌套对象',node.line);
+        const slot=lookup(node.base.name,node.line);
+        if(!slot.fields)throw new ProgramError('只有类对象可以访问成员：'+node.base.name,node.line);
+        const field=slot.fields.find(field=>field.name===node.name);
+        if(!field)throw new ProgramError(`类 ${slot.type} 没有成员 ${node.name}`,node.line);
+        if(field.visibility!=='public')throw new ProgramError(`不能访问 ${field.visibility} 成员 ${slot.name}.${field.name}`,node.line);
+        emit('MEMBER',{slot:slot.id,name:slot.name+'.'+field.name,object:slot.name,offset:field.offset},node.line);return field;
+      }
       if(node.kind==='index'&&node.base.kind==='var') {const slot=lookup(node.base.name,node.line);if(!slot.array) throw new ProgramError('仅数组可以使用下标',node.line);expression(node.index);emit('INDEX',{slot:slot.id,name:slot.name,size:slot.size},node.line);return slot;}
       throw new ProgramError('赋值目标必须是变量或数组元素',node.line);
     };
@@ -136,7 +172,7 @@ export function compile(source) {
       const line=node.line;
       if(node.kind==='number') {int32(node.value,line);emit('CONST',{value:node.value},line);return;}
       if(node.kind==='string') throw new ProgramError('字符串仅用于 cout 输出',line);
-      if(node.kind==='var'||node.kind==='index') {addr(node);emit('LOAD',{},line);return;}
+      if(node.kind==='var'||node.kind==='index'||node.kind==='member') {addr(node);emit('LOAD',{},line);return;}
       if(node.kind==='assign') {addr(node.left);if(node.op!=='='){emit('DUP',{},line);emit('LOAD',{},line);}expression(node.right);if(node.op!=='=') emit('BINARY',{operator:node.op.slice(0,-1)},line);emit('STORE',{},line);return;}
       if(node.kind==='unary'||node.kind==='post') {
         if(node.op==='-'&&node.expr.kind==='number'&&node.expr.value===2147483648){emit('CONST',{value:-2147483648},line);return;}
@@ -196,6 +232,7 @@ export function assembly(ins,arch='x64') {
     case 'CONST':return `MOV ${r}, ${im(ins.value)}`;
     case 'ALLOC':return `LOCAL ${ins.name}`;
     case 'ADDR':return `${arm?'ADR':'LEA'} ${r}, [${ins.name}]`;
+    case 'MEMBER':return `${arm?'ADR':'LEA'} ${r}, [${ins.object} + ${ins.offset}] ; ${ins.name}`;
     case 'INDEX':return `INDEX ${r}, ${ins.name}[${r}]`;
     case 'LOAD':return `${arm?'LDR':'MOV'} ${r}, [${r}]`;
     case 'STORE':return `${arm?'STR':'MOV'} [${b}], ${r}`;
@@ -236,7 +273,10 @@ export class Machine {
   currentLine(){return this.program.code[this.s.pc]?.line||1;}
   allocate(id,value=null) {
     const f=this.s.frames.at(-1),slot=this.program.functions[f.name].slots[id],base=f.addresses[id];
-    for(let i=0;i<slot.size;i++)this.s.memory[base+i*4]={name:slot.name+(slot.array?`[${i}]`:''),type:slot.type,value:value===null?null:slot.type==='bool'?Number(!!value):int32(value,this.currentLine()),frame:this.s.frames.length};
+    for(let i=0;i<slot.size;i++) {
+      const field=slot.fields?.[i],type=field?.type||slot.type;
+      this.s.memory[base+i*4]={name:slot.name+(field?'.'+field.name:slot.array?`[${i}]`:''),type,value:value===null?null:type==='bool'?Number(!!value):int32(value,this.currentLine()),frame:this.s.frames.length};
+    }
     this.s.changedMemory.push(...Array.from({length:slot.size},(_,i)=>base+i*4));
   }
   sync() {const f=this.s.frames.at(-1);this.s.registers[this.model.pc]=0x400000+this.s.pc*4;this.s.registers[this.model.sp]=f?.bottom||0x100000;this.s.registers[this.model.bp]=f?.top||0x100000;}
@@ -274,6 +314,7 @@ export class Machine {
         case 'CONST':this.push(ins.value);s.operation=`载入立即数 ${ins.value}`;s.activity.push('register');break;
         case 'ALLOC':this.allocate(ins.slot);s.operation=`为 ${ins.name} 分配栈空间`;s.activity.push('memory');break;
         case 'ADDR':this.push(s.frames.at(-1).addresses[ins.slot]);s.operation=`获取变量 ${ins.name} 的地址`;s.activity.push('register');break;
+        case 'MEMBER':this.push(s.frames.at(-1).addresses[ins.slot]+ins.offset);s.operation=`获取成员 ${ins.name} 的地址：${ins.object} + ${ins.offset} 字节`;s.activity.push('alu','register');break;
         case 'INDEX':{const i=this.pop();if(i<0||i>=ins.size)throw new ProgramError(`数组 ${ins.name} 下标 ${i} 越界（长度 ${ins.size}）`,ins.line);this.push(s.frames.at(-1).addresses[ins.slot]+i*4);s.operation=`计算 ${ins.name}[${i}] 的地址`;s.activity.push('alu');break;}
         case 'LOAD':{const addr=this.pop(),value=this.read(addr);this.push(value);s.operation=`读取 ${s.memory[addr].name} → ${value}`;s.activity.push('memory','register');break;}
         case 'STORE':{const value=this.pop(),addr=this.pop();s.registers[r[1]]=addr;this.push(this.write(addr,value));s.operation=`写回 ${s.memory[addr].name} = ${s.memory[addr].value}`;s.activity.push('register','memory');break;}
